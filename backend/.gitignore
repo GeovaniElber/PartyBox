@@ -1,3 +1,14 @@
+
+# Dependências
 node_modules/
+
+# Variáveis de ambiente
 .env
+.env.*
+!.env.example
+
+# Logs
 *.log
+
+# Fotografias e ficheiros enviados
+uploads/
