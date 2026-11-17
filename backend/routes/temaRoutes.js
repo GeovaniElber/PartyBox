@@ -1,26 +1,25 @@
-
 const express = require('express');
 const router = express.Router();
 
 const temaController = require('../controllers/temaController');
-const { autenticar, autorizar } = require('../middlewares/authMiddleware');
+const { autenticar, autenticarOpcional, autorizar } = require('../middlewares/authMiddleware');
 const uploadTema = require('../middlewares/temaUploadMiddleware');
 
-// Consultar todos os temas
+// Consultar temas: público (visitantes veem os temas, sem disponibilidade)
 router.get(
     '/',
-    autenticar,
+    autenticarOpcional,
     temaController.listar
 );
 
-// Consultar um tema específico
+// Consultar um tema com a galeria: público
 router.get(
     '/:id',
-    autenticar,
+    autenticarOpcional,
     temaController.consultar
 );
 
-// Criar tema (apenas administrador)
+// Criar tema (apenas administrador). "imagem" = imagem principal
 router.post(
     '/',
     autenticar,
@@ -38,12 +37,37 @@ router.put(
     temaController.atualizar
 );
 
-// Alterar estado (apenas administrador)
+// Alterar estado: ativo, inativo ou manutencao (apenas administrador)
 router.patch(
     '/:id/estado',
     autenticar,
     autorizar('administrador'),
     temaController.alterarEstado
+);
+
+// Galeria: acrescentar fotografias ("imagens", até 10)
+router.post(
+    '/:id/imagens',
+    autenticar,
+    autorizar('administrador'),
+    uploadTema.array('imagens', 10),
+    temaController.adicionarImagens
+);
+
+// Galeria: tornar uma fotografia a imagem principal
+router.patch(
+    '/:id/imagens/:imagemId/principal',
+    autenticar,
+    autorizar('administrador'),
+    temaController.definirPrincipal
+);
+
+// Galeria: remover uma fotografia
+router.delete(
+    '/:id/imagens/:imagemId',
+    autenticar,
+    autorizar('administrador'),
+    temaController.removerImagem
 );
 
 module.exports = router;

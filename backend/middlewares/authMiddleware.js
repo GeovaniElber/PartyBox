@@ -57,6 +57,20 @@ const autenticar = async (req, res, next) => {
 };
 
 
+// Autenticação opcional: identifica o utilizador se enviar um token válido,
+// mas deixa passar visitantes sem token (rotas públicas, como o catálogo de temas).
+const autenticarOpcional = async (req, res, next) => {
+    const authorization = req.headers.authorization;
+
+    if (!authorization || !authorization.startsWith('Bearer ')) {
+        req.utilizador = null;
+        return next();
+    }
+
+    return autenticar(req, res, next);
+};
+
+
 // Verificar permissões por tipo de utilizador
 const autorizar = (...tiposPermitidos) => {
     return (req, res, next) => {
@@ -80,5 +94,6 @@ const autorizar = (...tiposPermitidos) => {
 
 module.exports = {
     autenticar,
+    autenticarOpcional,
     autorizar
 };

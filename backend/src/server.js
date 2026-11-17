@@ -1,10 +1,12 @@
-
 require('dotenv').config();
 
+const http = require('http');
 const express = require('express');
 const cors = require('cors');
+const multer = require('multer');
 const db = require('./config/database');
-const path = require('path');
+const tempoReal = require('./socket');
+const { pastaUploads } = require('../middlewares/criarUpload');
 
 const utilizadorRoutes = require('../routes/utilizadorRoutes');
 const temaRoutes = require('../routes/temaRoutes');
@@ -12,9 +14,11 @@ const reservaRoutes = require('../routes/reservaRoutes');
 const aluguerRoutes = require('../routes/aluguerRoutes');
 const inspecaoRoutes = require('../routes/inspecaoRoutes');
 const multaRoutes = require('../routes/multaRoutes');
-const notificacaoRoutes = require('../routes/notificacaoRoutes');
+const listaEsperaRoutes = require('../routes/listaEsperaRoutes');
+const painelRoutes = require('../routes/painelRoutes');
 
 const multaController = require('../controllers/multaController');
+const listaEspera = require('../services/listaEsperaService');
 
 const app = express();
 
@@ -25,8 +29,8 @@ app.use(cors({
 
 app.use(express.json());
 
-// Disponibilizar fotografias
-app.use('/uploads', express.static(path.join(__dirname, '../../uploads')));
+// Disponibilizar fotografias (backend/uploads)
+app.use('/uploads', express.static(pastaUploads));
 
 // Rotas
 app.use('/api/utilizadores', utilizadorRoutes);
@@ -35,7 +39,8 @@ app.use('/api/reservas', reservaRoutes);
 app.use('/api/alugueres', aluguerRoutes);
 app.use('/api/inspecoes', inspecaoRoutes);
 app.use('/api/multas', multaRoutes);
-app.use('/api/notificacoes', notificacaoRoutes);
+app.use('/api/lista-espera', listaEsperaRoutes);
+app.use('/api/painel', painelRoutes);
 
 // Rota inicial
 app.get('/', (req, res) => {
@@ -66,29 +71,69 @@ app.get('/api/health', async (req, res) => {
     }
 });
 
-// Verificação automática de multas
-const executarVerificacaoMultas = async () => {
+// Rota inexistente
+app.use((req, res) => {
+    res.status(404).json({ mensagem: 'Rota não encontrada.' });
+});
+
+// Erros de upload e outros erros não tratados
+app.use((erro, req, res, next) => {
+    if (erro instanceof multer.MulterError) {
+        const mensagens = {
+            LIMIT_FILE_SIZE: 'Cada fotografia pode ter no máximo 2 MB.',
+            LIMIT_FILE_COUNT: 'Enviaste demasiadas fotografias.',
+            LIMIT_UNEXPECTED_FILE: 'Campo de ficheiro inesperado.'
+        };
+
+        return res.status(400).json({ mensagem: mensagens[erro.code] || 'Erro no envio do ficheiro.' });
+    }
+
+    if (erro.type === 'entity.parse.failed') {
+        return res.status(400).json({ mensagem: 'O corpo do pedido não é JSON válido.' });
+    }
+
+    // Erros de validação dos uploads (formato de imagem inválido)
+    if (erro.status === 400) {
+        return res.status(400).json({ mensagem: erro.message });
+    }
+
+    console.error('Erro não tratado:', erro);
+
+    return res.status(500).json({ mensagem: 'Erro interno do servidor.' });
+});
+
+// Tarefas automáticas
+const executarTarefa = (nome, tarefa) => async () => {
     try {
-        const total = await multaController.gerarMultasAutomaticas();
+        const total = await tarefa();
 
         if (total > 0) {
-            console.log(`${total} multa(s) automática(s) criada(s).`);
+            console.log(`${nome}: ${total}`);
         }
 
     } catch (erro) {
-        console.error('Erro na verificação automática de multas:', erro);
+        console.error(`Erro na tarefa "${nome}":`, erro);
     }
 };
 
-// Iniciar servidor
-const PORT = process.env.PORT || 3000;
+// Marca alugueres atrasados e aplica a multa 48h depois do prazo (a cada 15 minutos)
+const verificarMultas = executarTarefa('Multas automáticas criadas', multaController.gerarMultasAutomaticas);
 
-app.listen(PORT, () => {
+// Termina ofertas da lista de espera fora de prazo e passa as datas ao seguinte (a cada minuto)
+const verificarListaEspera = executarTarefa('Ofertas da lista de espera expiradas', listaEspera.expirarOfertas);
+
+// Iniciar servidor HTTP + tempo real (Socket.IO)
+const PORT = process.env.PORT || 3000;
+const servidor = http.createServer(app);
+
+tempoReal.iniciar(servidor);
+
+servidor.listen(PORT, () => {
     console.log(`PartyBox API disponível em http://localhost:${PORT}`);
 
-    // Executar verificação ao iniciar
-    executarVerificacaoMultas();
+    verificarMultas();
+    verificarListaEspera();
 
-    // Repetir a cada hora
-    setInterval(executarVerificacaoMultas, 60 * 60 * 1000);
+    setInterval(verificarMultas, 15 * 60 * 1000);
+    setInterval(verificarListaEspera, 60 * 1000);
 });

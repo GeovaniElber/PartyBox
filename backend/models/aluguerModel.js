@@ -66,12 +66,17 @@ const listarAtivos = async () => {
             r.tema_id,
             u.nome AS cliente_nome,
             u.telefone AS cliente_telefone,
-            t.nome AS tema_nome
+            u.foto AS cliente_foto,
+            t.nome AS tema_nome,
+            t.pecas AS tema_pecas,
+            TIMESTAMPDIFF(HOUR, a.data_prevista_devolucao, NOW()) AS horas_atraso,
+            (SELECT COUNT(*) FROM lista_espera le
+              WHERE le.tema_id = r.tema_id AND le.estado IN ('aguarda', 'contactado')) AS na_lista_espera
         FROM aluguer a
         INNER JOIN reserva r ON a.reserva_id = r.id
         INNER JOIN utilizador u ON r.cliente_id = u.id
         INNER JOIN tema t ON r.tema_id = t.id
-        WHERE a.estado = 'ativo'
+        WHERE a.estado IN ('ativo', 'atrasado')
         ORDER BY a.data_prevista_devolucao ASC
     `);
 

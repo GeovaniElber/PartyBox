@@ -32,7 +32,10 @@ const procurarPorId = async (id) => {
             a.data_prevista_devolucao,
             a.data_devolucao_real,
             r.cliente_id,
+            r.tema_id,
             u.nome AS cliente_nome,
+            u.email AS cliente_email,
+            u.telefone AS cliente_telefone,
             t.nome AS tema_nome
         FROM multa m
         INNER JOIN aluguer a ON m.aluguer_id = a.id
@@ -76,8 +79,8 @@ const procurarPorAluguer = async (aluguerId, conexao = db) => {
 };
 
 // Verificar se o cliente tem multas pendentes
-const temMultasPendentes = async (clienteId) => {
-    const [multas] = await db.query(`
+const temMultasPendentes = async (clienteId, conexao = db) => {
+    const [multas] = await conexao.query(`
         SELECT COUNT(*) AS total
         FROM multa m
         INNER JOIN aluguer a ON m.aluguer_id = a.id
@@ -105,15 +108,55 @@ const criar = async (dados, conexao = db) => {
     return resultado.insertId;
 };
 
-// Atualizar estado da multa
-const atualizarEstado = async (id, estado, conexao = db) => {
+// Registar o pagamento de uma multa pendente
+const registarPagamento = async (id, formaPagamento, conexao = db) => {
     const [resultado] = await conexao.query(`
         UPDATE multa
-        SET estado = ?
+        SET estado = 'paga',
+            data_pagamento = NOW(),
+            forma_pagamento = ?
         WHERE id = ?
-    `, [estado, id]);
+          AND estado = 'pendente'
+    `, [formaPagamento, id]);
 
     return resultado.affectedRows;
+};
+
+// Anular uma multa pendente
+const anular = async (id, conexao = db) => {
+    const [resultado] = await conexao.query(`
+        UPDATE multa
+        SET estado = 'anulada'
+        WHERE id = ?
+          AND estado = 'pendente'
+    `, [id]);
+
+    return resultado.affectedRows;
+};
+
+// Listar multas pendentes com os dados do cliente (tela Pagamento de multas)
+const listarPendentes = async () => {
+    const [multas] = await db.query(`
+        SELECT
+            m.*,
+            a.data_prevista_devolucao,
+            a.data_devolucao_real,
+            r.cliente_id,
+            u.nome AS cliente_nome,
+            u.email AS cliente_email,
+            u.telefone AS cliente_telefone,
+            u.foto AS cliente_foto,
+            t.nome AS tema_nome
+        FROM multa m
+        INNER JOIN aluguer a ON m.aluguer_id = a.id
+        INNER JOIN reserva r ON a.reserva_id = r.id
+        INNER JOIN utilizador u ON r.cliente_id = u.id
+        INNER JOIN tema t ON r.tema_id = t.id
+        WHERE m.estado = 'pendente'
+        ORDER BY m.criado_em ASC
+    `);
+
+    return multas;
 };
 
 
@@ -124,12 +167,15 @@ const buscarAlugueresParaMulta = async () => {
             a.id AS aluguer_id,
             a.data_prevista_devolucao,
             r.cliente_id,
-            u.nome AS cliente_nome
+            u.nome AS cliente_nome,
+            t.nome AS tema_nome
         FROM aluguer a
         INNER JOIN reserva r
             ON a.reserva_id = r.id
         INNER JOIN utilizador u
             ON r.cliente_id = u.id
+        INNER JOIN tema t
+            ON r.tema_id = t.id
         LEFT JOIN multa m
             ON m.aluguer_id = a.id
         WHERE a.estado IN ('ativo', 'atrasado')
@@ -149,7 +195,9 @@ module.exports = {
     procurarPorAluguer,
     temMultasPendentes,
     criar,
-    atualizarEstado,
+    registarPagamento,
+    anular,
+    listarPendentes,
     buscarAlugueresParaMulta
 
 };
